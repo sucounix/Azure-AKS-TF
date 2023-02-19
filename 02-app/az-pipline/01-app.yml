@@ -1,0 +1,129 @@
+# Deploy to Azure Kubernetes Service
+# Build and push image to Azure Container Registry; Deploy to Azure Kubernetes Service
+# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
+
+trigger:
+  branches:
+    include:
+    - master
+
+  paths:
+    include:
+    - 02-app/**
+
+variables:
+  # Container registry service connection established during pipeline creation
+  dockerRegistryServiceConnection: 'acr-aks-azcr-svc-con' ## Review Service Connections
+  imageRepository: 'app/pg-db-test'
+  containerRegistry: 'sucoazr.azurecr.io'
+  dockerfilePath: '$(Build.SourcesDirectory)/02-app/Dockerfile'
+  apppath: '$(Build.SourcesDirectory)/02-app/app'
+  tag: '$(Build.BuildId)'
+  imagePullSecret: 'aksdevopsacr1755e8d5-auth'
+
+
+  # Agent VM image name
+  vmImageName: 'bes-runner'
+
+stages:
+- stage: setup_Test_lint
+  displayName: Build and push stage
+  jobs:
+  - job: Build
+    displayName: Build
+    pool: $(vmImageName)
+    # strategy:
+      # matrix:
+      #   Python310:
+      #     python.version: '3.10'
+
+    steps:
+    # - task: UsePythonVersion@0
+    #   inputs:
+    #     versionSpec: '$(python.version)'
+    #   displayName: 'Use Python $(python.version)'
+    - script: |
+        python3 -V
+        # pip3.7 -V
+      displayName: 'ver'
+
+    - script: |
+        sudo apt install -y python3.7-distutils python3.7-venv
+        curl -sS https://bootstrap.pypa.io/get-pip.py | python3.7
+        python3.7 -m  venv $(apppath)/antenv
+      displayName: 'Setup ENV'
+
+    - script: |
+        cd $(apppath)
+        source antenv/bin/activate
+        pip install pylint pylint-junit
+        pylint --output-format=pylint_junit.JUnitReporter main.py | tee rspec.xml
+      displayName: 'pylint'
+    - task: PublishTestResults@2
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: '$(apppath)/*.xml'
+
+    # - script: |
+    #     cd $(apppath)
+    #     pip install pytest pytest-azurepipelines
+    #     pip install pytest-cov
+    #     pytest --doctest-modules --junitxml=junit/test-results.xml --cov=. --cov-report=xml
+    #   displayName: 'pytest'
+
+
+
+
+- stage: Build
+  displayName: Build and push stage
+  jobs:
+  - job: Build
+    displayName: Build
+    pool: $(vmImageName)
+    steps:
+    - task: Docker@2
+      displayName: Build and push an image to container registry
+      inputs:
+        command: buildAndPush
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+          $(Build.SourceVersion)
+
+    - task: CopyFiles@2
+      inputs:
+        SourceFolder: '$(System.DefaultWorkingDirectory)/02-app/kubernetes/'
+        Contents: '**'
+        TargetFolder: '$(Build.ArtifactStagingDirectory)'
+        OverWrite: true
+
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'kube-manifests'
+        publishLocation: 'Container'
+
+
+# - stage: Deploy
+#   displayName: Deploy stage
+#   dependsOn: Build
+
+#   jobs:
+#   - deployment: Deploy
+#     displayName: Deploy
+#     pool: $(vmImageName)
+#     environment: 'suco-db-app.default'
+#     strategy:
+#       runOnce:
+#         deploy:
+#           steps:
+#           - task: KubernetesManifest@0
+#             displayName: Deploy to Kubernetes cluster
+#             inputs:
+#               action: deploy
+#               manifests: |
+#                 $(Build.SourcesDirectory)/02-app/kubernetes/1-deployment.yaml
+#               containers: |
+#                 $(containerRegistry)/$(imageRepository):$(tag)

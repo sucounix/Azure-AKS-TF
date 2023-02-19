@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: db-conn-test
+  name: db-conn-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db-conn-test
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: db-conn-test
+    spec:
+      containers:
+      - image: sucoazr.azurecr.io/app/pg-db-test:152
+        name: pg-db-test
+        resources:
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        ports:
+        - containerPort: 80
+        # env:
+        #   - name: 'DATABASE_NAME'
+        #     value: 'pg_db'
+        #   - name: 'DATABASE_USER'
+        #     value: 'pg_user'
+        #   - name: 'DATABASE_PASSWORD'
+        #     valueFrom:
+        #       secretKeyRef:
+        #         name: pg-secret
+        #         key: password
+        #   - name: 'DATABASE_HOST'
+        #     value: '10.126.1.4'
+        #   - name: 'DATABASE_PORT'
+        #     value: '5432'
+        #   - name: 'DEBUG'
+        #     value: 'True'
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: db-conn-test-srv
+    labels:
+      app: db-conn-test
+spec:
+  type: ClusterIP
+  selector:
+    app: db-conn-test
+  ports:
+    - port: 80
+      targetPort: 80
+---
+
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: db-conn-test-ing
+  labels:
+    app: db-conn-test
+  annotations:
+    # Add ingress.class as addon-http-application-routing
+    kubernetes.io/ingress.class: addon-http-application-routing
+spec:
+  rules:
+    - host: app1.#{env}#.58a06e40bfec4fa49698.eastus.aksapp.io # Add Application DNS name to be registered in DNS
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: db-conn-test-srv
+                port: 
+                  number: 80
+
